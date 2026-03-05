@@ -6,7 +6,7 @@ from .metrics import error_stats
 from .sample_codecs import EncodedSample, decode_sample
 
 
-@dataclass(slots=True)
+@dataclass
 class SampleIndex:
     sample_id: int
     shard_id: str
@@ -15,7 +15,7 @@ class SampleIndex:
     length: int
 
 
-@dataclass(slots=True)
+@dataclass
 class QualityRecord:
     codec_id: str
     codec_params_digest: str
@@ -23,7 +23,7 @@ class QualityRecord:
     task_guardrail: str
 
 
-@dataclass(slots=True)
+@dataclass
 class ShardIndex:
     shard_id: str
     block_offsets: list[int] = field(default_factory=list)
