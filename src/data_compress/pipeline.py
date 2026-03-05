@@ -11,7 +11,7 @@ from .sample_codecs import EncodedSample
 from .shard import compress_shard
 
 
-@dataclass(slots=True)
+@dataclass
 class PipelineResult:
     manifest: dict
     shard_indexes: list[ShardIndex]
