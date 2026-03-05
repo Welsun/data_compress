@@ -95,67 +95,67 @@
 
 ---
 
-## 6. 10x 压缩比落地路径
+## 6. 代码实现状态（MVP）
 
-## 6.1 目标门槛
-- 压缩比：`>= 10x`
-- 质量：主任务指标下降不超过阈值
-- 吞吐：训练吞吐下降不超过 5%
+当前仓库已实现一个 Python MVP（`src/data_compress`）：
 
-## 6.2 推荐组合
-- 路径 A（时序主路径）：`SZ/ZFP + zstd`
-- 路径 B（通用主路径）：`FP16/BF16 或 INT8 + bitpack + zstd`
-- 路径 C（混合）：字段级策略（高敏字段保守、低敏字段激进）
+- 样本层：
+  - `delta_zlib`（时序）
+  - `fp16_zlib`（通用）
+  - `int8_zlib`（低敏感）
+- 分片层：按 block profiling 自动选择 codec
+- 索引层：manifest + shard/sample index + quality metadata
+- 验证：基于 MAE / 相对误差门限的快速校验
 
-## 6.3 最小 A/B 实验矩阵
-- Baseline：`delta + zstd`
-- A：`sz(eps_rel=1e-3) + zstd`
-- B：`zfp(fixed_rate) + zstd`
-- C：`fp16 + bitpack + zstd`
-- D：`int8(per-channel) + bitpack + zstd`
-
-每个方案记录：
-- 压缩比
-- 解压吞吐（GB/s）
-- 训练吞吐（samples/s）
-- 任务指标差值
+> 说明：README 方案中的 `zstd / SZ / ZFP / bitpack` 在 MVP 中用纯 Python + `zlib` 近似落地，便于快速验证流程；后续可替换为生产级 codec。
 
 ---
 
-## 7. 端到端流程（浮点专用）
+## 7. 快速开始
 
-1. Ingest：读取原始浮点数据并校验
-2. Normalize：统一 dtype、shape、缺失值策略
-3. Profile：统计每字段分布与敏感度
-4. Pack：按 block 自适应压缩
-5. Index：生成定位与质量索引
-6. Validate：离线误差检查 + 在线训练 smoke test
-7. Publish：版本化发布
-8. Monitor：持续监控压缩比、吞吐与训练指标
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+pytest
+```
 
----
+最小示例：
 
-## 8. MVP 迭代建议
+```python
+import numpy as np
+from data_compress import CompressionConfig, CompressionPipeline, FieldStrategy
 
-### 阶段 1（2~3 周）
-- 上线时序浮点路径：`Delta/SZ + zstd`
-- 跑通索引、版本化与回滚
-- 拿到首个 10x 子集结果
+samples = [np.sin(np.linspace(0, 20, 2048, dtype=np.float32) + i * 0.01) for i in range(4)]
 
-### 阶段 2（3~4 周）
-- 上线通用浮点路径：`FP16/BF16/INT8 + bitpack + zstd`
-- 上线按块自适应策略
-- 完成主要任务 A/B 回归
+config = CompressionConfig(
+    strategies={
+        "sensor": FieldStrategy(field_name="sensor", codec_family="delta_zlib", eps_abs=1e-3, eps_rel=1e-3)
+    }
+)
 
-### 阶段 3（持续）
-- 自动调参（按字段分布自动选 codec/误差阈值）
-- 完善告警（误差、吞吐、训练指标联动）
+pipeline = CompressionPipeline(config)
+result = pipeline.pack_field("sensor", samples)
+print(result.manifest)
+print("validate:", pipeline.validate(result, max_mae=0.01, max_rel=0.1))
+```
 
----
 
-## 9. 下一步建议
+CSV 输入（第 2~31 列共 30 维）示例：
 
-1. 抽取 200GB 代表性浮点子集。
-2. 并行试跑 `SZ/ZFP/FP16/INT8` 四条路线。
-3. 选前两名进入真实训练 A/B。
-4. 达到“10x + 指标约束 + 吞吐约束”后再全量推广。
+```python
+from data_compress import CompressionConfig, CompressionPipeline, FieldStrategy
+
+config = CompressionConfig(
+    strategies={
+        "csv_features_2_31": FieldStrategy(field_name="csv_features_2_31", codec_family="fp16_zlib")
+    }
+)
+pipeline = CompressionPipeline(config)
+
+# 默认读取第 2~31 列（1-based, inclusive）
+result = pipeline.pack_csv("train.csv")
+print(result.manifest)
+```
+
+
