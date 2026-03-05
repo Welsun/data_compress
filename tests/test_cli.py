@@ -26,6 +26,9 @@ def test_cli_accepts_csv_path_argument(tmp_path, monkeypatch, capsys):
 
     assert payload["sample_count"] == 5
     assert "manifest" in payload
+    assert payload["compression_ratio"] > 0
+    assert Path(payload["compressed_output"]).exists()
+    assert Path(payload["decompressed_output"]).exists()
 
 
 def test_start_script_runs_without_install(tmp_path):
@@ -49,3 +52,4 @@ def test_start_script_runs_without_install(tmp_path):
     payload = json.loads(proc.stdout)
     assert payload["sample_count"] == 1
     assert payload["is_valid"] is True
+    assert payload["compressed_bytes"] > 0
