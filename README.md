@@ -141,6 +141,21 @@ print("validate:", pipeline.validate(result, max_mae=0.01, max_rel=0.1))
 ```
 
 
+
+命令行启动脚本：
+
+```bash
+python start_csv_compress.py train.csv
+# 或使用模块方式
+python -m data_compress.cli train.csv
+```
+
+可通过参数传入 CSV 路径并调整列范围：
+
+```bash
+python start_csv_compress.py /path/to/train.csv --start-col 2 --end-col 31
+```
+
 CSV 输入（第 2~31 列共 30 维）示例：
 
 ```python
