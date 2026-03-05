@@ -6,7 +6,7 @@ from .config import CompressionConfig, FieldStrategy
 from .sample_codecs import EncodedSample, encode_sample, flatten
 
 
-@dataclass(slots=True)
+@dataclass
 class BlockProfile:
     variance: float
     dynamic_range: float

@@ -8,7 +8,7 @@ LossMode = Literal["bounded_lossy"]
 CodecFamily = Literal["delta_zlib", "fp16_zlib", "int8_zlib"]
 
 
-@dataclass(slots=True)
+@dataclass
 class FieldStrategy:
     field_name: str
     loss_mode: LossMode = "bounded_lossy"
@@ -19,7 +19,7 @@ class FieldStrategy:
     conservative: bool = False
 
 
-@dataclass(slots=True)
+@dataclass
 class CompressionConfig:
     shard_size_mb: int = 256
     block_size_mb: int = 1

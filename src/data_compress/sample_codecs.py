@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from .config import FieldStrategy
 
 
-@dataclass(slots=True)
+@dataclass
 class EncodedSample:
     codec_id: str
     payload: bytes
