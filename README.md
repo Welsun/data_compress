@@ -156,20 +156,6 @@ python -m data_compress.cli train.csv
 python start_csv_compress.py /path/to/train.csv --start-col 2 --end-col 31
 ```
 
-当校验失败时，可输出失败样本误差 TopN（按 MAE/MaxRel 降序）：
-
-```bash
-python start_csv_compress.py /path/to/train.csv --max-mae 0.01 --max-rel 0.01 --failed-topn 10
-```
-
-会同时落盘压缩结果和反压缩结果，并在 JSON 输出中给出压缩比：
-
-```bash
-python start_csv_compress.py /path/to/train.csv   --compressed-out ./artifacts/compressed.bin   --decompressed-out ./artifacts/decompressed.csv
-```
-
-输出中的 `compression_ratio = source_csv_size_bytes / compressed_size_bytes`，你可以结合 `compressed.bin` 与原始 CSV 文件大小做直观对比。
-
 CSV 输入（第 2~31 列共 30 维）示例：
 
 ```python
