@@ -1,5 +1,8 @@
 import csv
 import json
+import subprocess
+import sys
+from pathlib import Path
 
 from data_compress.cli import main
 
@@ -23,3 +26,26 @@ def test_cli_accepts_csv_path_argument(tmp_path, monkeypatch, capsys):
 
     assert payload["sample_count"] == 5
     assert "manifest" in payload
+
+
+def test_start_script_runs_without_install(tmp_path):
+    csv_path = tmp_path / "train.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([f"c{i}" for i in range(1, 35)])
+        writer.writerow([0] + [j for j in range(1, 34)])
+
+    repo_root = Path(__file__).resolve().parent.parent
+    start_script = repo_root / "start_csv_compress.py"
+
+    proc = subprocess.run(
+        [sys.executable, str(start_script), str(csv_path)],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(proc.stdout)
+    assert payload["sample_count"] == 1
+    assert payload["is_valid"] is True
