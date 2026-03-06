@@ -156,6 +156,16 @@ python -m data_compress.cli train.csv
 python start_csv_compress.py /path/to/train.csv --start-col 2 --end-col 31
 ```
 
+
+如需先统计压缩前浮点数据的实际内存占用，可使用：
+
+```bash
+python data/csv_to_bin.py /path/to/train.csv --start-col 2 --end-col 31 --dtype float32
+```
+
+脚本会提取指定列的浮点值，按连续二进制写出 `.bin`，并打印总字节数。
+若首行是列名（非浮点），脚本会自动识别并跳过；也可通过 `--skip-header` 强制跳过首行。
+
 CSV 输入（第 2~31 列共 30 维）示例：
 
 ```python
