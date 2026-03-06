@@ -41,9 +41,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-header",
         action="store_true",
-        help="如果 CSV 首行为表头，添加此参数以跳过首行",
+        help="强制跳过 CSV 首行（若未设置，也会自动识别并跳过非浮点表头）",
     )
     return parser.parse_args()
+
+
+def _can_parse_selected_columns(row: list[str], start_col: int, end_col: int) -> bool:
+    if len(row) < end_col:
+        return False
+
+    try:
+        for value in row[start_col - 1 : end_col]:
+            float(value)
+    except ValueError:
+        return False
+
+    return True
 
 
 def csv_to_bin(
@@ -53,7 +66,7 @@ def csv_to_bin(
     end_col: int,
     dtype: str,
     skip_header: bool,
-) -> tuple[int, int]:
+) -> tuple[int, int, bool]:
     if start_col < 1 or end_col < start_col:
         raise ValueError("列范围非法：请确保 1 <= start-col <= end-col")
 
@@ -63,10 +76,24 @@ def csv_to_bin(
 
     with csv_path.open("r", encoding="utf-8", newline="") as f:
         reader = csv.reader(f)
-        if skip_header:
-            next(reader, None)
 
-        for row_idx, row in enumerate(reader, start=1):
+        first_row = next(reader, None)
+        auto_header_skipped = False
+        if first_row is None:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with output_path.open("wb") as fw:
+                numbers.tofile(fw)
+            return 0, 0, False
+
+        if skip_header:
+            auto_header_skipped = True
+        elif _can_parse_selected_columns(first_row, start_col, end_col):
+            numbers.extend(float(v) for v in first_row[start_col - 1 : end_col])
+            row_count += 1
+        else:
+            auto_header_skipped = True
+
+        for row_idx, row in enumerate(reader, start=2):
             if len(row) < end_col:
                 raise ValueError(
                     f"第 {row_idx} 行列数不足：需要至少 {end_col} 列，实际 {len(row)} 列"
@@ -84,7 +111,7 @@ def csv_to_bin(
     with output_path.open("wb") as fw:
         numbers.tofile(fw)
 
-    return row_count, len(numbers)
+    return row_count, len(numbers), auto_header_skipped
 
 
 def format_size(size_bytes: int) -> str:
@@ -110,7 +137,7 @@ def main() -> None:
         else csv_path.with_suffix(".bin")
     )
 
-    row_count, value_count = csv_to_bin(
+    row_count, value_count, header_skipped = csv_to_bin(
         csv_path=csv_path,
         output_path=output_path,
         start_col=args.start_col,
@@ -124,6 +151,7 @@ def main() -> None:
     print(f"输出 BIN: {output_path}")
     print(f"总行数: {row_count}")
     print(f"提取列范围: {args.start_col}~{args.end_col} (共 {args.end_col - args.start_col + 1} 列)")
+    print(f"首行处理: {'已跳过（表头）' if header_skipped else '作为数据读取'}")
     print(f"数据类型: {args.dtype}")
     print(f"浮点数量: {value_count}")
     print(f"原始浮点内存占用: {total_bytes} bytes ({format_size(total_bytes)})")
