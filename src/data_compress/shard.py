@@ -38,14 +38,15 @@ def choose_strategy(profile: BlockProfile, base: FieldStrategy) -> FieldStrategy
         codec_family=base.codec_family,
         conservative=base.conservative,
     )
+    compression = base.codec_family.split("_")[-1]
     if profile.smoothness > 0.65:
-        strategy.codec_family = "delta_zlib"
+        strategy.codec_family = f"delta_{compression}"
     elif profile.dynamic_range > 20:
-        strategy.codec_family = "fp16_zlib"
+        strategy.codec_family = f"fp16_{compression}"
     else:
-        strategy.codec_family = "int8_zlib"
+        strategy.codec_family = f"int8_{compression}"
     if strategy.conservative:
-        strategy.codec_family = "fp16_zlib"
+        strategy.codec_family = f"fp16_{compression}"
         strategy.eps_abs = min(strategy.eps_abs, 1e-5)
         strategy.eps_rel = min(strategy.eps_rel, 1e-4)
     return strategy
