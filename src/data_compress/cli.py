@@ -17,7 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--field-name", default="csv_features_2_31", help="Field name used in strategy")
     parser.add_argument(
         "--codec-family",
-        choices=["delta_zlib", "fp16_zlib", "int8_zlib"],
+        choices=["delta_zlib", "fp16_zlib", "int8_zlib", "delta_zstd", "fp16_zstd", "int8_zstd"],
         default="fp16_zlib",
         help="Codec family to use for compression",
     )
