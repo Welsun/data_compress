@@ -1,4 +1,5 @@
 import csv
+import importlib.util
 import math
 import random
 
@@ -63,3 +64,43 @@ def test_pipeline_supports_csv_columns_2_to_31(tmp_path):
     result = pipeline.pack_csv(csv_path)
     assert len(result.encoded_shards["shard-0"]) == 20
     assert pipeline.validate(result, max_mae=0.1, max_rel=0.1)
+
+
+def test_pipeline_zstd_codec_requires_dependency_when_missing():
+    if importlib.util.find_spec("zstandard") is not None:
+        return
+
+    samples = [[0.1, 0.2, 0.3, 0.4]]
+    config = CompressionConfig(
+        strategies={
+            "sensor": FieldStrategy(field_name="sensor", codec_family="delta_zstd"),
+        }
+    )
+    pipeline = CompressionPipeline(config)
+
+    try:
+        pipeline.pack_field("sensor", samples)
+    except RuntimeError as exc:
+        assert "zstandard" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError when zstandard dependency is missing")
+
+
+def test_pipeline_sz_codec_requires_dependency_when_missing():
+    if importlib.util.find_spec("pysz") is not None or importlib.util.find_spec("sz3") is not None:
+        return
+
+    samples = [[0.1, 0.2, 0.3, 0.4]]
+    config = CompressionConfig(
+        strategies={
+            "sensor": FieldStrategy(field_name="sensor", codec_family="delta_sz"),
+        }
+    )
+    pipeline = CompressionPipeline(config)
+
+    try:
+        pipeline.pack_field("sensor", samples)
+    except RuntimeError as exc:
+        assert "pip install pysz" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError when sz3 dependency is missing")
