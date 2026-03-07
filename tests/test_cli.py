@@ -92,7 +92,7 @@ def test_cli_accepts_sz_codec_argument(tmp_path, monkeypatch, capsys):
     try:
         main()
     except RuntimeError as exc:
-        assert "python-sz3" in str(exc)
+        assert "pip install pysz" in str(exc)
     else:
         captured = capsys.readouterr()
         payload = json.loads(captured.out)

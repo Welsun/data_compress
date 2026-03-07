@@ -104,7 +104,7 @@
   - `fp16_zlib`（通用）
   - `int8_zlib`（低敏感）
   - `delta_zstd` / `fp16_zstd` / `int8_zstd`（需安装可选依赖 `zstandard`）
-  - `delta_sz` / `fp16_sz` / `int8_sz`（需安装可选依赖 `python-sz3`）
+  - `delta_sz` / `fp16_sz` / `int8_sz`（需安装可选依赖 `pysz`，兼容 `sz3`）
 - 分片层：按 block profiling 自动选择 codec
 - 索引层：manifest + shard/sample index + quality metadata
 - 验证：基于 MAE / 相对误差门限的快速校验
@@ -120,13 +120,7 @@ pip install zstandard
 若要启用 SZ 变体 codec，请先安装：
 
 ```bash
-pip install python-sz3
-```
-
-若要启用 zstd 变体 codec，请先安装：
-
-```bash
-pip install zstandard
+pip install pysz
 ```
 
 ---

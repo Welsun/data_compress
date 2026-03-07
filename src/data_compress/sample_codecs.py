@@ -12,9 +12,12 @@ except ModuleNotFoundError:  # pragma: no cover - depends on optional dependency
     zstd = None
 
 try:
-    import sz3
+    import pysz as sz_backend
 except ModuleNotFoundError:  # pragma: no cover - depends on optional dependency.
-    sz3 = None
+    try:
+        import sz3 as sz_backend
+    except ModuleNotFoundError:  # pragma: no cover - depends on optional dependency.
+        sz_backend = None
 
 @dataclass
 class EncodedSample:
@@ -68,14 +71,14 @@ def _compress(raw: bytes, compression: str) -> bytes:
             )
         return zstd.ZstdCompressor(level=3).compress(raw)
     if compression == "sz":
-        if sz3 is None:
+        if sz_backend is None:
             raise RuntimeError(
-                "SZ codec requested but optional dependency 'python-sz3' is not installed. "
-                "Install it with: pip install python-sz3"
+                "SZ codec requested but no supported SZ Python package is installed. "
+                "Install with: pip install pysz (preferred) or pip install sz3"
             )
-        if not hasattr(sz3, "compress"):
-            raise RuntimeError("Installed sz3 module does not provide compress(raw: bytes)")
-        return sz3.compress(raw)
+        if not hasattr(sz_backend, "compress"):
+            raise RuntimeError("Installed SZ module does not provide compress(raw: bytes)")
+        return sz_backend.compress(raw)
     return zlib.compress(raw, level=6)
 
 
@@ -88,14 +91,14 @@ def _decompress(payload: bytes, compression: str) -> bytes:
             )
         return zstd.ZstdDecompressor().decompress(payload)
     if compression == "sz":
-        if sz3 is None:
+        if sz_backend is None:
             raise RuntimeError(
-                "SZ codec requested but optional dependency 'python-sz3' is not installed. "
-                "Install it with: pip install python-sz3"
+                "SZ codec requested but no supported SZ Python package is installed. "
+                "Install with: pip install pysz (preferred) or pip install sz3"
             )
-        if not hasattr(sz3, "decompress"):
-            raise RuntimeError("Installed sz3 module does not provide decompress(payload: bytes)")
-        return sz3.decompress(payload)
+        if not hasattr(sz_backend, "decompress"):
+            raise RuntimeError("Installed SZ module does not provide decompress(payload: bytes)")
+        return sz_backend.decompress(payload)
     return zlib.decompress(payload)
 
 
