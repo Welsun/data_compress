@@ -123,6 +123,12 @@ pip install zstandard
 pip install python-sz3
 ```
 
+若要启用 zstd 变体 codec，请先安装：
+
+```bash
+pip install zstandard
+```
+
 ---
 
 ## 7. 快速开始
