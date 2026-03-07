@@ -84,3 +84,23 @@ def test_pipeline_zstd_codec_requires_dependency_when_missing():
         assert "zstandard" in str(exc)
     else:
         raise AssertionError("Expected RuntimeError when zstandard dependency is missing")
+
+
+def test_pipeline_sz_codec_requires_dependency_when_missing():
+    if importlib.util.find_spec("sz3") is not None:
+        return
+
+    samples = [[0.1, 0.2, 0.3, 0.4]]
+    config = CompressionConfig(
+        strategies={
+            "sensor": FieldStrategy(field_name="sensor", codec_family="delta_sz"),
+        }
+    )
+    pipeline = CompressionPipeline(config)
+
+    try:
+        pipeline.pack_field("sensor", samples)
+    except RuntimeError as exc:
+        assert "python-sz3" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError when sz3 dependency is missing")

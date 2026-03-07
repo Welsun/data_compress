@@ -12,6 +12,9 @@ CodecFamily = Literal[
     "delta_zstd",
     "fp16_zstd",
     "int8_zstd",
+    "delta_sz",
+    "fp16_sz",
+    "int8_sz",
 ]
 
 

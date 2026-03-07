@@ -104,11 +104,24 @@
   - `fp16_zlib`（通用）
   - `int8_zlib`（低敏感）
   - `delta_zstd` / `fp16_zstd` / `int8_zstd`（需安装可选依赖 `zstandard`）
+  - `delta_sz` / `fp16_sz` / `int8_sz`（需安装可选依赖 `python-sz3`）
 - 分片层：按 block profiling 自动选择 codec
 - 索引层：manifest + shard/sample index + quality metadata
 - 验证：基于 MAE / 相对误差门限的快速校验
 
-> 说明：README 方案中的 `zstd / SZ / ZFP / bitpack` 在 MVP 中用纯 Python + `zlib` 近似落地，便于快速验证流程；后续可替换为生产级 codec。
+> 说明：当前 MVP 默认使用纯 Python + `zlib`；同时支持可选 `zstd` 与 `SZ` 依赖以便快速验证多后端流程，后续可进一步替换为生产级 codec。
+
+若要启用 zstd 变体 codec，请先安装：
+
+```bash
+pip install zstandard
+```
+
+若要启用 SZ 变体 codec，请先安装：
+
+```bash
+pip install python-sz3
+```
 
 若要启用 zstd 变体 codec，请先安装：
 

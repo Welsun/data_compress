@@ -11,6 +11,10 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - depends on optional dependency.
     zstd = None
 
+try:
+    import sz3
+except ModuleNotFoundError:  # pragma: no cover - depends on optional dependency.
+    sz3 = None
 
 @dataclass
 class EncodedSample:
@@ -63,6 +67,15 @@ def _compress(raw: bytes, compression: str) -> bytes:
                 "Install it with: pip install zstandard"
             )
         return zstd.ZstdCompressor(level=3).compress(raw)
+    if compression == "sz":
+        if sz3 is None:
+            raise RuntimeError(
+                "SZ codec requested but optional dependency 'python-sz3' is not installed. "
+                "Install it with: pip install python-sz3"
+            )
+        if not hasattr(sz3, "compress"):
+            raise RuntimeError("Installed sz3 module does not provide compress(raw: bytes)")
+        return sz3.compress(raw)
     return zlib.compress(raw, level=6)
 
 
@@ -74,6 +87,15 @@ def _decompress(payload: bytes, compression: str) -> bytes:
                 "Install it with: pip install zstandard"
             )
         return zstd.ZstdDecompressor().decompress(payload)
+    if compression == "sz":
+        if sz3 is None:
+            raise RuntimeError(
+                "SZ codec requested but optional dependency 'python-sz3' is not installed. "
+                "Install it with: pip install python-sz3"
+            )
+        if not hasattr(sz3, "decompress"):
+            raise RuntimeError("Installed sz3 module does not provide decompress(payload: bytes)")
+        return sz3.decompress(payload)
     return zlib.decompress(payload)
 
 
