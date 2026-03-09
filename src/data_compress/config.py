@@ -5,7 +5,17 @@ from typing import Literal
 
 
 LossMode = Literal["bounded_lossy"]
-CodecFamily = Literal["delta_zlib", "fp16_zlib", "int8_zlib"]
+CodecFamily = Literal[
+    "delta_zlib",
+    "fp16_zlib",
+    "int8_zlib",
+    "delta_zstd",
+    "fp16_zstd",
+    "int8_zstd",
+    "delta_sz",
+    "fp16_sz",
+    "int8_sz",
+]
 
 
 @dataclass
