@@ -75,10 +75,16 @@ def _call_sz_with_fallbacks(op: str, payload: bytes) -> bytes:
     else:
         candidates = ["decompress", "decode", "sz_decompress", "sz3_decompress"]
 
-    for name in candidates:
-        fn = getattr(sz_backend, name, None)
-        if callable(fn):
-            return fn(payload)
+    search_spaces = [sz_backend]
+    nested_api = getattr(sz_backend, "sz", None)
+    if nested_api is not None:
+        search_spaces.append(nested_api)
+
+    for space in search_spaces:
+        for name in candidates:
+            fn = getattr(space, name, None)
+            if callable(fn):
+                return fn(payload)
 
     available = [n for n in dir(sz_backend) if not n.startswith("_")]
     raise RuntimeError(

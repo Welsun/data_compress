@@ -125,3 +125,33 @@ def test_pipeline_sz_codec_supports_encode_decode_style_api(monkeypatch):
     result = pipeline.pack_field("sensor", samples)
 
     assert result.encoded_shards["shard-0"][0].codec_id == "delta_sz"
+
+
+def test_pipeline_sz_codec_supports_nested_sz_namespace_api(monkeypatch):
+    class NestedSZ:
+        @staticmethod
+        def compress(b):
+            return b"N" + b
+
+        @staticmethod
+        def decompress(b):
+            return b[1:]
+
+    stub = SimpleNamespace(
+        sz=NestedSZ,
+        szAlgorithm=object(),
+        szConfig=object(),
+        szErrorBoundMode=object(),
+    )
+    monkeypatch.setattr(sample_codecs, "sz_backend", stub)
+
+    samples = [[0.1, 0.2, 0.3, 0.4]]
+    config = CompressionConfig(
+        strategies={
+            "sensor": FieldStrategy(field_name="sensor", codec_family="delta_sz"),
+        }
+    )
+    pipeline = CompressionPipeline(config)
+    result = pipeline.pack_field("sensor", samples)
+
+    assert result.encoded_shards["shard-0"][0].codec_id == "delta_sz"
