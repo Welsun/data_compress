@@ -128,22 +128,61 @@ def test_pipeline_sz_codec_supports_encode_decode_style_api(monkeypatch):
 
 
 def test_pipeline_sz_codec_supports_nested_sz_namespace_api(monkeypatch):
-    class NestedSZ:
-        @staticmethod
-        def compress(b):
-            return b"N" + b
+    class FakeArray:
+        def __init__(self, raw):
+            self._raw = raw
+
+        def __len__(self):
+            return len(self._raw)
+
+        def tolist(self):
+            return list(self._raw)
+
+        def reshape(self, _shape):
+            return self
+
+        def tobytes(self):
+            return self._raw
+
+    class FakeNumpy:
+        uint8 = int
 
         @staticmethod
-        def decompress(b):
-            return b[1:]
+        def frombuffer(raw, dtype):
+            _ = dtype
+            return FakeArray(bytes(raw))
+
+        @staticmethod
+        def asarray(arr, dtype):
+            _ = dtype
+            return arr
+
+    class FakeConfig:
+        errorBoundMode = None
+        absErrorBound = None
+
+    class FakeErrorBoundMode:
+        ABS = "ABS"
+
+    class NestedSZ:
+        @staticmethod
+        def compress(data, config):
+            raw = bytes(data.tolist())
+            return b"N" + raw, 1.23
+
+        @staticmethod
+        def decompress(compressed, dtype, shape):
+            _ = dtype, shape
+            return FakeArray(compressed[1:]), FakeConfig()
 
     stub = SimpleNamespace(
         sz=NestedSZ,
         szAlgorithm=object(),
-        szConfig=object(),
-        szErrorBoundMode=object(),
+        szConfig=FakeConfig,
+        szErrorBoundMode=FakeErrorBoundMode,
     )
     monkeypatch.setattr(sample_codecs, "sz_backend", stub)
+    monkeypatch.setattr(sample_codecs, "np", FakeNumpy)
 
     samples = [[0.1, 0.2, 0.3, 0.4]]
     config = CompressionConfig(

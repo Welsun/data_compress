@@ -4,6 +4,11 @@ import struct
 import zlib
 from dataclasses import dataclass
 
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - depends on optional dependency.
+    np = None
+
 from .config import FieldStrategy
 
 try:
@@ -79,6 +84,35 @@ def _call_sz_with_fallbacks(op: str, payload: bytes) -> bytes:
     nested_api = getattr(sz_backend, "sz", None)
     if nested_api is not None:
         search_spaces.append(nested_api)
+
+    if nested_api is not None and hasattr(sz_backend, "szConfig"):
+        if np is None:
+            raise RuntimeError(
+                "SZ codec requested but numpy is not installed. Install with: pip install numpy"
+            )
+        if op == "compress" and callable(getattr(nested_api, "compress", None)):
+            arr = np.frombuffer(payload, dtype=np.uint8)
+            config = sz_backend.szConfig()
+            error_mode = getattr(sz_backend, "szErrorBoundMode", None)
+            abs_mode = getattr(error_mode, "ABS", None)
+            if abs_mode is not None and hasattr(config, "errorBoundMode"):
+                config.errorBoundMode = abs_mode
+            if hasattr(config, "absErrorBound"):
+                config.absErrorBound = 0.0
+            compressed = nested_api.compress(arr, config)
+            if isinstance(compressed, tuple):
+                compressed = compressed[0]
+            if not isinstance(compressed, (bytes, bytearray)):
+                compressed = bytes(compressed)
+            return struct.pack("<I", len(arr)) + compressed
+
+        if op == "decompress" and callable(getattr(nested_api, "decompress", None)):
+            n = struct.unpack("<I", payload[:4])[0]
+            compressed = payload[4:]
+            restored = nested_api.decompress(compressed, np.uint8, (n,))
+            if isinstance(restored, tuple):
+                restored = restored[0]
+            return np.asarray(restored, dtype=np.uint8).tobytes()
 
     for space in search_spaces:
         for name in candidates:
