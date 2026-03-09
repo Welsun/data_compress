@@ -1,8 +1,11 @@
 import csv
+import importlib.util
 import math
 import random
+from types import SimpleNamespace
 
 from data_compress import CompressionConfig, CompressionPipeline, FieldStrategy
+import data_compress.sample_codecs as sample_codecs
 
 
 def test_pipeline_pack_and_validate_timeseries():
@@ -63,3 +66,92 @@ def test_pipeline_supports_csv_columns_2_to_31(tmp_path):
     result = pipeline.pack_csv(csv_path)
     assert len(result.encoded_shards["shard-0"]) == 20
     assert pipeline.validate(result, max_mae=0.1, max_rel=0.1)
+
+
+def test_pipeline_zstd_codec_requires_dependency_when_missing():
+    if importlib.util.find_spec("zstandard") is not None:
+        return
+
+    samples = [[0.1, 0.2, 0.3, 0.4]]
+    config = CompressionConfig(
+        strategies={
+            "sensor": FieldStrategy(field_name="sensor", codec_family="delta_zstd"),
+        }
+    )
+    pipeline = CompressionPipeline(config)
+
+    try:
+        pipeline.pack_field("sensor", samples)
+    except RuntimeError as exc:
+        assert "zstandard" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError when zstandard dependency is missing")
+
+
+def test_pipeline_sz_codec_requires_dependency_when_missing():
+    if importlib.util.find_spec("pysz") is not None or importlib.util.find_spec("sz3") is not None:
+        return
+
+    samples = [[0.1, 0.2, 0.3, 0.4]]
+    config = CompressionConfig(
+        strategies={
+            "sensor": FieldStrategy(field_name="sensor", codec_family="delta_sz"),
+        }
+    )
+    pipeline = CompressionPipeline(config)
+
+    try:
+        pipeline.pack_field("sensor", samples)
+    except RuntimeError as exc:
+        assert "pip install pysz" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError when sz3 dependency is missing")
+
+
+def test_pipeline_sz_codec_supports_encode_decode_style_api(monkeypatch):
+    stub = SimpleNamespace(
+        encode=lambda b: b"E" + b,
+        decode=lambda b: b[1:],
+    )
+    monkeypatch.setattr(sample_codecs, "sz_backend", stub)
+
+    samples = [[0.1, 0.2, 0.3, 0.4]]
+    config = CompressionConfig(
+        strategies={
+            "sensor": FieldStrategy(field_name="sensor", codec_family="delta_sz"),
+        }
+    )
+    pipeline = CompressionPipeline(config)
+    result = pipeline.pack_field("sensor", samples)
+
+    assert result.encoded_shards["shard-0"][0].codec_id == "delta_sz"
+
+
+def test_pipeline_sz_codec_supports_nested_sz_namespace_api(monkeypatch):
+    class NestedSZ:
+        @staticmethod
+        def compress(b):
+            return b"N" + b
+
+        @staticmethod
+        def decompress(b):
+            return b[1:]
+
+    stub = SimpleNamespace(
+        sz=NestedSZ,
+        szAlgorithm=object(),
+        szConfig=object(),
+        szErrorBoundMode=object(),
+    )
+    monkeypatch.setattr(sample_codecs, "sz_backend", stub)
+
+    samples = [[0.1, 0.2, 0.3, 0.4]]
+    config = CompressionConfig(
+        strategies={
+            "sensor": FieldStrategy(field_name="sensor", codec_family="delta_sz"),
+        }
+    )
+    pipeline = CompressionPipeline(config)
+    result = pipeline.pack_field("sensor", samples)
+
+    assert result.encoded_shards["shard-0"][0].codec_id == "delta_sz"
