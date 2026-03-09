@@ -53,3 +53,47 @@ def test_start_script_runs_without_install(tmp_path):
     assert payload["sample_count"] == 1
     assert payload["is_valid"] is True
     assert payload["compressed_bytes"] > 0
+
+
+def test_cli_accepts_zstd_codec_argument(tmp_path, monkeypatch, capsys):
+    csv_path = tmp_path / "train.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([f"c{i}" for i in range(1, 35)])
+        writer.writerow([0] + [j for j in range(1, 34)])
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["data-compress", str(csv_path), "--codec-family", "fp16_zstd"],
+    )
+
+    try:
+        main()
+    except RuntimeError as exc:
+        assert "zstandard" in str(exc)
+    else:
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["sample_count"] == 1
+
+
+def test_cli_accepts_sz_codec_argument(tmp_path, monkeypatch, capsys):
+    csv_path = tmp_path / "train.csv"
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([f"c{i}" for i in range(1, 35)])
+        writer.writerow([0] + [j for j in range(1, 34)])
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["data-compress", str(csv_path), "--codec-family", "fp16_sz"],
+    )
+
+    try:
+        main()
+    except RuntimeError as exc:
+        assert "pip install pysz" in str(exc)
+    else:
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["sample_count"] == 1

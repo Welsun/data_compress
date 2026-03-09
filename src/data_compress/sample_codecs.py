@@ -6,6 +6,18 @@ from dataclasses import dataclass
 
 from .config import FieldStrategy
 
+try:
+    import zstandard as zstd
+except ModuleNotFoundError:  # pragma: no cover - depends on optional dependency.
+    zstd = None
+
+try:
+    import pysz as sz_backend
+except ModuleNotFoundError:  # pragma: no cover - depends on optional dependency.
+    try:
+        import sz3 as sz_backend
+    except ModuleNotFoundError:  # pragma: no cover - depends on optional dependency.
+        sz_backend = None
 
 @dataclass
 class EncodedSample:
@@ -50,11 +62,68 @@ def _digest(strategy: FieldStrategy) -> str:
     )
 
 
+def _call_sz_with_fallbacks(op: str, payload: bytes) -> bytes:
+    if sz_backend is None:
+        raise RuntimeError(
+            "SZ codec requested but no supported SZ Python package is installed. "
+            "Install with: pip install pysz (preferred) or pip install sz3"
+        )
+
+    candidates: list[str]
+    if op == "compress":
+        candidates = ["compress", "encode", "sz_compress", "sz3_compress"]
+    else:
+        candidates = ["decompress", "decode", "sz_decompress", "sz3_decompress"]
+
+    for name in candidates:
+        fn = getattr(sz_backend, name, None)
+        if callable(fn):
+            return fn(payload)
+
+    available = [n for n in dir(sz_backend) if not n.startswith("_")]
+    raise RuntimeError(
+        f"Installed SZ module does not provide a compatible {op} API for bytes. "
+        f"Tried {candidates}; available symbols include: {available[:12]}"
+    )
+
+
+def _compress(raw: bytes, compression: str) -> bytes:
+    if compression == "zstd":
+        if zstd is None:
+            raise RuntimeError(
+                "zstd codec requested but optional dependency 'zstandard' is not installed. "
+                "Install it with: pip install zstandard"
+            )
+        return zstd.ZstdCompressor(level=3).compress(raw)
+    if compression == "sz":
+        return _call_sz_with_fallbacks("compress", raw)
+    return zlib.compress(raw, level=6)
+
+
+def _decompress(payload: bytes, compression: str) -> bytes:
+    if compression == "zstd":
+        if zstd is None:
+            raise RuntimeError(
+                "zstd codec requested but optional dependency 'zstandard' is not installed. "
+                "Install it with: pip install zstandard"
+            )
+        return zstd.ZstdDecompressor().decompress(payload)
+    if compression == "sz":
+        return _call_sz_with_fallbacks("decompress", payload)
+    return zlib.decompress(payload)
+
+
+def _compression_from_codec(codec_family: str) -> str:
+    return codec_family.split("_")[-1]
+
+
 def encode_timeseries_delta(arr, strategy: FieldStrategy) -> EncodedSample:
     data = list(flatten(arr))
     shape = infer_shape(arr)
+    codec_id = strategy.codec_family
+    compression = _compression_from_codec(codec_id)
     if not data:
-        return EncodedSample("delta_zlib", b"", shape, "float32", _digest(strategy))
+        return EncodedSample(codec_id, b"", shape, "float32", _digest(strategy))
 
     delta = [0.0]
     for i in range(1, len(data)):
@@ -64,14 +133,14 @@ def encode_timeseries_delta(arr, strategy: FieldStrategy) -> EncodedSample:
 
     header = struct.pack("<fI", float(data[0]), len(data))
     packed = header + struct.pack("<f", step) + struct.pack(f"<{len(q_delta)}i", *q_delta)
-    payload = zlib.compress(packed, level=6)
-    return EncodedSample("delta_zlib", payload, shape, "float32", _digest(strategy))
+    payload = _compress(packed, compression)
+    return EncodedSample(codec_id, payload, shape, "float32", _digest(strategy))
 
 
 def decode_timeseries_delta(encoded: EncodedSample):
     if not encoded.payload:
         return []
-    raw = zlib.decompress(encoded.payload)
+    raw = _decompress(encoded.payload, _compression_from_codec(encoded.codec_id))
     first, n = struct.unpack("<fI", raw[:8])
     step = struct.unpack("<f", raw[8:12])[0]
     q_delta = struct.unpack(f"<{n}i", raw[12 : 12 + n * 4])
@@ -86,12 +155,12 @@ def encode_fp16(arr, strategy: FieldStrategy) -> EncodedSample:
     data = list(flatten(arr))
     shape = infer_shape(arr)
     q = [struct.unpack("<e", struct.pack("<e", x))[0] for x in data]
-    payload = zlib.compress(struct.pack(f"<{len(q)}e", *q), level=6)
-    return EncodedSample("fp16_zlib", payload, shape, "float16", _digest(strategy))
+    payload = _compress(struct.pack(f"<{len(q)}e", *q), _compression_from_codec(strategy.codec_family))
+    return EncodedSample(strategy.codec_family, payload, shape, "float16", _digest(strategy))
 
 
 def decode_fp16(encoded: EncodedSample):
-    raw = zlib.decompress(encoded.payload)
+    raw = _decompress(encoded.payload, _compression_from_codec(encoded.codec_id))
     n = len(raw) // 2
     vals = list(struct.unpack(f"<{n}e", raw))
     return reshape(vals, encoded.shape)
@@ -103,13 +172,14 @@ def encode_int8(arr, strategy: FieldStrategy) -> EncodedSample:
     max_abs = max((abs(x) for x in data), default=1.0)
     scale = max(max_abs / 127.0, 1e-12)
     q = [max(-127, min(127, int(round(x / scale)))) for x in data]
-    payload = struct.pack("<f", scale) + zlib.compress(struct.pack(f"<{len(q)}b", *q), level=6)
-    return EncodedSample("int8_zlib", payload, shape, "int8", _digest(strategy))
+    compressed_q = _compress(struct.pack(f"<{len(q)}b", *q), _compression_from_codec(strategy.codec_family))
+    payload = struct.pack("<f", scale) + compressed_q
+    return EncodedSample(strategy.codec_family, payload, shape, "int8", _digest(strategy))
 
 
 def decode_int8(encoded: EncodedSample):
     scale = struct.unpack("<f", encoded.payload[:4])[0]
-    raw = zlib.decompress(encoded.payload[4:])
+    raw = _decompress(encoded.payload[4:], _compression_from_codec(encoded.codec_id))
     n = len(raw)
     q = struct.unpack(f"<{n}b", raw)
     vals = [x * scale for x in q]
@@ -117,16 +187,16 @@ def decode_int8(encoded: EncodedSample):
 
 
 def encode_sample(arr, strategy: FieldStrategy) -> EncodedSample:
-    if strategy.codec_family == "delta_zlib":
+    if strategy.codec_family.startswith("delta_"):
         return encode_timeseries_delta(arr, strategy)
-    if strategy.codec_family == "int8_zlib":
+    if strategy.codec_family.startswith("int8_"):
         return encode_int8(arr, strategy)
     return encode_fp16(arr, strategy)
 
 
 def decode_sample(encoded: EncodedSample):
-    if encoded.codec_id == "delta_zlib":
+    if encoded.codec_id.startswith("delta_"):
         return decode_timeseries_delta(encoded)
-    if encoded.codec_id == "int8_zlib":
+    if encoded.codec_id.startswith("int8_"):
         return decode_int8(encoded)
     return decode_fp16(encoded)
