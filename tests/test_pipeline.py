@@ -2,8 +2,10 @@ import csv
 import importlib.util
 import math
 import random
+from types import SimpleNamespace
 
 from data_compress import CompressionConfig, CompressionPipeline, FieldStrategy
+import data_compress.sample_codecs as sample_codecs
 
 
 def test_pipeline_pack_and_validate_timeseries():
@@ -104,3 +106,22 @@ def test_pipeline_sz_codec_requires_dependency_when_missing():
         assert "pip install pysz" in str(exc)
     else:
         raise AssertionError("Expected RuntimeError when sz3 dependency is missing")
+
+
+def test_pipeline_sz_codec_supports_encode_decode_style_api(monkeypatch):
+    stub = SimpleNamespace(
+        encode=lambda b: b"E" + b,
+        decode=lambda b: b[1:],
+    )
+    monkeypatch.setattr(sample_codecs, "sz_backend", stub)
+
+    samples = [[0.1, 0.2, 0.3, 0.4]]
+    config = CompressionConfig(
+        strategies={
+            "sensor": FieldStrategy(field_name="sensor", codec_family="delta_sz"),
+        }
+    )
+    pipeline = CompressionPipeline(config)
+    result = pipeline.pack_field("sensor", samples)
+
+    assert result.encoded_shards["shard-0"][0].codec_id == "delta_sz"

@@ -62,6 +62,31 @@ def _digest(strategy: FieldStrategy) -> str:
     )
 
 
+def _call_sz_with_fallbacks(op: str, payload: bytes) -> bytes:
+    if sz_backend is None:
+        raise RuntimeError(
+            "SZ codec requested but no supported SZ Python package is installed. "
+            "Install with: pip install pysz (preferred) or pip install sz3"
+        )
+
+    candidates: list[str]
+    if op == "compress":
+        candidates = ["compress", "encode", "sz_compress", "sz3_compress"]
+    else:
+        candidates = ["decompress", "decode", "sz_decompress", "sz3_decompress"]
+
+    for name in candidates:
+        fn = getattr(sz_backend, name, None)
+        if callable(fn):
+            return fn(payload)
+
+    available = [n for n in dir(sz_backend) if not n.startswith("_")]
+    raise RuntimeError(
+        f"Installed SZ module does not provide a compatible {op} API for bytes. "
+        f"Tried {candidates}; available symbols include: {available[:12]}"
+    )
+
+
 def _compress(raw: bytes, compression: str) -> bytes:
     if compression == "zstd":
         if zstd is None:
@@ -71,14 +96,7 @@ def _compress(raw: bytes, compression: str) -> bytes:
             )
         return zstd.ZstdCompressor(level=3).compress(raw)
     if compression == "sz":
-        if sz_backend is None:
-            raise RuntimeError(
-                "SZ codec requested but no supported SZ Python package is installed. "
-                "Install with: pip install pysz (preferred) or pip install sz3"
-            )
-        if not hasattr(sz_backend, "compress"):
-            raise RuntimeError("Installed SZ module does not provide compress(raw: bytes)")
-        return sz_backend.compress(raw)
+        return _call_sz_with_fallbacks("compress", raw)
     return zlib.compress(raw, level=6)
 
 
@@ -91,14 +109,7 @@ def _decompress(payload: bytes, compression: str) -> bytes:
             )
         return zstd.ZstdDecompressor().decompress(payload)
     if compression == "sz":
-        if sz_backend is None:
-            raise RuntimeError(
-                "SZ codec requested but no supported SZ Python package is installed. "
-                "Install with: pip install pysz (preferred) or pip install sz3"
-            )
-        if not hasattr(sz_backend, "decompress"):
-            raise RuntimeError("Installed SZ module does not provide decompress(payload: bytes)")
-        return sz_backend.decompress(payload)
+        return _call_sz_with_fallbacks("decompress", payload)
     return zlib.decompress(payload)
 
 
