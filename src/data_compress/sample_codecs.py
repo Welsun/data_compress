@@ -127,6 +127,72 @@ def _call_sz_with_fallbacks(op: str, payload: bytes) -> bytes:
     )
 
 
+def _official_pysz_api():
+    nested_api = getattr(sz_backend, "sz", None)
+    if (
+        sz_backend is not None
+        and nested_api is not None
+        and hasattr(sz_backend, "szConfig")
+        and callable(getattr(nested_api, "compress", None))
+        and callable(getattr(nested_api, "decompress", None))
+    ):
+        return nested_api
+    return None
+
+
+def _np_dtype(name: str):
+    if np is None:
+        raise RuntimeError("SZ codec requested but numpy is not installed. Install with: pip install numpy")
+    return getattr(np, name, name)
+
+
+def _compress_sz_array(arr, dtype, abs_error_bound: float = 0.0) -> bytes:
+    if sz_backend is None:
+        raise RuntimeError(
+            "SZ codec requested but no supported SZ Python package is installed. "
+            "Install with: pip install pysz (preferred) or pip install sz3"
+        )
+    _ = _np_dtype("uint8")
+
+    arr_np = np.asarray(arr, dtype=dtype)
+    nested_api = _official_pysz_api()
+    if nested_api is not None:
+        config = sz_backend.szConfig()
+        error_mode = getattr(sz_backend, "szErrorBoundMode", None)
+        abs_mode = getattr(error_mode, "ABS", None)
+        if abs_mode is not None and hasattr(config, "errorBoundMode"):
+            config.errorBoundMode = abs_mode
+        if hasattr(config, "absErrorBound"):
+            config.absErrorBound = float(abs_error_bound)
+        compressed = nested_api.compress(arr_np, config)
+        if isinstance(compressed, tuple):
+            compressed = compressed[0]
+        if not isinstance(compressed, (bytes, bytearray)):
+            compressed = bytes(compressed)
+        return compressed
+
+    return _call_sz_with_fallbacks("compress", arr_np.tobytes())
+
+
+def _decompress_sz_array(payload: bytes, dtype, shape):
+    if sz_backend is None:
+        raise RuntimeError(
+            "SZ codec requested but no supported SZ Python package is installed. "
+            "Install with: pip install pysz (preferred) or pip install sz3"
+        )
+    _ = _np_dtype("uint8")
+
+    nested_api = _official_pysz_api()
+    if nested_api is not None:
+        restored = nested_api.decompress(payload, dtype, shape)
+        if isinstance(restored, tuple):
+            restored = restored[0]
+        return np.asarray(restored, dtype=dtype)
+
+    raw = _call_sz_with_fallbacks("decompress", payload)
+    return np.frombuffer(raw, dtype=dtype).reshape(shape)
+
+
 def _compress(raw: bytes, compression: str) -> bytes:
     if compression == "zstd":
         if zstd is None:
@@ -172,18 +238,30 @@ def encode_timeseries_delta(arr, strategy: FieldStrategy) -> EncodedSample:
     q_delta = [int(round(d / step)) for d in delta]
 
     header = struct.pack("<fI", float(data[0]), len(data))
-    packed = header + struct.pack("<f", step) + struct.pack(f"<{len(q_delta)}i", *q_delta)
-    payload = _compress(packed, compression)
+    if compression == "sz":
+        compressed_delta = _compress_sz_array(q_delta, "int32", abs_error_bound=0.0)
+        payload = header + struct.pack("<f", step) + compressed_delta
+    else:
+        packed = header + struct.pack("<f", step) + struct.pack(f"<{len(q_delta)}i", *q_delta)
+        payload = _compress(packed, compression)
     return EncodedSample(codec_id, payload, shape, "float32", _digest(strategy))
 
 
 def decode_timeseries_delta(encoded: EncodedSample):
     if not encoded.payload:
         return []
-    raw = _decompress(encoded.payload, _compression_from_codec(encoded.codec_id))
-    first, n = struct.unpack("<fI", raw[:8])
-    step = struct.unpack("<f", raw[8:12])[0]
-    q_delta = struct.unpack(f"<{n}i", raw[12 : 12 + n * 4])
+    compression = _compression_from_codec(encoded.codec_id)
+    if compression == "sz":
+        first, n = struct.unpack("<fI", encoded.payload[:8])
+        step = struct.unpack("<f", encoded.payload[8:12])[0]
+        q_delta_arr = _decompress_sz_array(encoded.payload[12:], "int32", (n,))
+        q_delta_list = q_delta_arr.tolist() if hasattr(q_delta_arr, "tolist") else list(q_delta_arr)
+        q_delta = [int(x) for x in q_delta_list]
+    else:
+        raw = _decompress(encoded.payload, compression)
+        first, n = struct.unpack("<fI", raw[:8])
+        step = struct.unpack("<f", raw[8:12])[0]
+        q_delta = struct.unpack(f"<{n}i", raw[12 : 12 + n * 4])
     delta = [d * step for d in q_delta]
     restored = [first]
     for i in range(1, n):
@@ -195,14 +273,25 @@ def encode_fp16(arr, strategy: FieldStrategy) -> EncodedSample:
     data = list(flatten(arr))
     shape = infer_shape(arr)
     q = [struct.unpack("<e", struct.pack("<e", x))[0] for x in data]
-    payload = _compress(struct.pack(f"<{len(q)}e", *q), _compression_from_codec(strategy.codec_family))
+    compression = _compression_from_codec(strategy.codec_family)
+    if compression == "sz":
+        compressed = _compress_sz_array(q, "float32", abs_error_bound=strategy.eps_abs)
+        payload = struct.pack("<I", len(q)) + compressed
+        return EncodedSample(strategy.codec_family, payload, shape, "float32", _digest(strategy))
+    payload = _compress(struct.pack(f"<{len(q)}e", *q), compression)
     return EncodedSample(strategy.codec_family, payload, shape, "float16", _digest(strategy))
 
 
 def decode_fp16(encoded: EncodedSample):
-    raw = _decompress(encoded.payload, _compression_from_codec(encoded.codec_id))
-    n = len(raw) // 2
-    vals = list(struct.unpack(f"<{n}e", raw))
+    compression = _compression_from_codec(encoded.codec_id)
+    if compression == "sz":
+        n = struct.unpack("<I", encoded.payload[:4])[0]
+        vals_arr = _decompress_sz_array(encoded.payload[4:], "float32", (n,))
+        vals = vals_arr.tolist() if hasattr(vals_arr, "tolist") else list(vals_arr)
+    else:
+        raw = _decompress(encoded.payload, compression)
+        n = len(raw) // 2
+        vals = list(struct.unpack(f"<{n}e", raw))
     return reshape(vals, encoded.shape)
 
 
@@ -212,16 +301,28 @@ def encode_int8(arr, strategy: FieldStrategy) -> EncodedSample:
     max_abs = max((abs(x) for x in data), default=1.0)
     scale = max(max_abs / 127.0, 1e-12)
     q = [max(-127, min(127, int(round(x / scale)))) for x in data]
-    compressed_q = _compress(struct.pack(f"<{len(q)}b", *q), _compression_from_codec(strategy.codec_family))
-    payload = struct.pack("<f", scale) + compressed_q
+    compression = _compression_from_codec(strategy.codec_family)
+    if compression == "sz":
+        compressed_q = _compress_sz_array(q, "int32", abs_error_bound=0.0)
+        payload = struct.pack("<fI", scale, len(q)) + compressed_q
+    else:
+        compressed_q = _compress(struct.pack(f"<{len(q)}b", *q), compression)
+        payload = struct.pack("<f", scale) + compressed_q
     return EncodedSample(strategy.codec_family, payload, shape, "int8", _digest(strategy))
 
 
 def decode_int8(encoded: EncodedSample):
-    scale = struct.unpack("<f", encoded.payload[:4])[0]
-    raw = _decompress(encoded.payload[4:], _compression_from_codec(encoded.codec_id))
-    n = len(raw)
-    q = struct.unpack(f"<{n}b", raw)
+    compression = _compression_from_codec(encoded.codec_id)
+    if compression == "sz":
+        scale, n = struct.unpack("<fI", encoded.payload[:8])
+        q_arr = _decompress_sz_array(encoded.payload[8:], "int32", (n,))
+        q_list = q_arr.tolist() if hasattr(q_arr, "tolist") else list(q_arr)
+        q = [int(x) for x in q_list]
+    else:
+        scale = struct.unpack("<f", encoded.payload[:4])[0]
+        raw = _decompress(encoded.payload[4:], compression)
+        n = len(raw)
+        q = struct.unpack(f"<{n}b", raw)
     vals = [x * scale for x in q]
     return reshape(vals, encoded.shape)
 

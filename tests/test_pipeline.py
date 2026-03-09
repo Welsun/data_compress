@@ -109,11 +109,38 @@ def test_pipeline_sz_codec_requires_dependency_when_missing():
 
 
 def test_pipeline_sz_codec_supports_encode_decode_style_api(monkeypatch):
+    class FakeArray:
+        def __init__(self, raw):
+            self._raw = raw
+
+        def tobytes(self):
+            return self._raw
+
+        def reshape(self, _shape):
+            return self
+
+        def tolist(self):
+            return list(self._raw)
+
+    class FakeNumpy:
+        @staticmethod
+        def asarray(arr, dtype):
+            _ = dtype
+            if isinstance(arr, FakeArray):
+                return arr
+            return FakeArray(bytes(arr))
+
+        @staticmethod
+        def frombuffer(raw, dtype):
+            _ = dtype
+            return FakeArray(bytes(raw))
+
     stub = SimpleNamespace(
         encode=lambda b: b"E" + b,
         decode=lambda b: b[1:],
     )
     monkeypatch.setattr(sample_codecs, "sz_backend", stub)
+    monkeypatch.setattr(sample_codecs, "np", FakeNumpy)
 
     samples = [[0.1, 0.2, 0.3, 0.4]]
     config = CompressionConfig(
@@ -155,7 +182,9 @@ def test_pipeline_sz_codec_supports_nested_sz_namespace_api(monkeypatch):
         @staticmethod
         def asarray(arr, dtype):
             _ = dtype
-            return arr
+            if isinstance(arr, FakeArray):
+                return arr
+            return FakeArray(bytes(arr))
 
     class FakeConfig:
         errorBoundMode = None
